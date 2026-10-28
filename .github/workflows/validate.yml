@@ -14,4 +14,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
+      - name: Install macOS Keychain test dependency
+        if: runner.os == 'macOS'
+        run: python -m pip install -r skills/aws-events-auth/requirements-macos.txt
       - run: python -m unittest discover -s tests -v

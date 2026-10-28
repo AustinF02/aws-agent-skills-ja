@@ -9,3 +9,4 @@ __pycache__/
 **/login/cache/
 *.log
 .DS_Store
+**/refresh.lock

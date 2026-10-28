@@ -14,6 +14,7 @@
 | --- | --- | --- |
 | [aws-knowledge-mcp-setup](skills/aws-knowledge-mcp-setup/SKILL.md) | 公式ドキュメントを検索するKnowledge MCPの接続 | 不要 |
 | [aws-login-helper](skills/aws-login-helper/SKILL.md) | セッション失効の確認、必要な場合だけ再認証、AWS MCP起動 | 必要 |
+| [aws-events-auth](skills/aws-events-auth/SKILL.md) | Builder IDによるイベント予定の認証、Bearerヘッダー、失効時の復旧 | Builder ID。AWS CLIとは別 |
 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWSアカウントを使う公式MCPの接続と切り分け | 必要 |
 | [aws-agent-toolkit-setup](skills/aws-agent-toolkit-setup/SKILL.md) | AWS公式手順に沿うToolkit導入、AWSスキルとMCPの確認 | 必要 |
 | [aws-backend-tdd](skills/aws-backend-tdd/SKILL.md) | AWS基盤・バックエンドの振る舞いを小さなテストから実装 | 通常不要。実AWS検証は別途確認 |
@@ -68,6 +69,20 @@ https://github.com/AustinF02/aws-agent-skills-ja/tree/main/skills/aws-knowledge-
 Claude Codeではスキルフォルダを上記へ配置し、新しいセッションで `/aws-knowledge-mcp-setup` などを使います。Codexでは `$aws-knowledge-mcp-setup`、Kiroではスキル選択か自然文で依頼できます。
 
 スキルの導入とMCPサーバーの接続設定は別作業です。各スキルが対象環境を確認して設定を案内します。
+
+## AWS Eventsの予定はBuilder IDで認証
+
+[aws-events-auth](skills/aws-events-auth/SKILL.md) はAWS Events API・MCP用で、AWS CLIログインやEventBridgeとは別です。Codex・Kiro・Claude Codeの標準OAuth設定を案内します。同梱の代替スクリプトは **macOS Keychain専用**。Windows/Linuxでは利用クライアントが対応するOAuthを使います。
+
+```text
+aws-events-authで、自分のAWS Eventsの予定を読めるようにしてください。
+既存の認証を保持し、トークンは端末内だけで管理してください。
+読み取り専用で、予約・取消・お気に入り・個人予定を変更しないでください。
+```
+
+macOS用ヘルパーが内部でBearerヘッダーを付け、失効時の更新と401後の一度だけの再試行を行います。403は登録・認可を切り分けます。Keychain項目は削除せず更新し、予定を書き換えるコマンドは公開しません。依存関係と実行方法は[導入・検証手順](skills/aws-events-auth/references/setup.md)を参照してください。
+
+認証情報、トークンキャッシュ、Keychain書き出し、個人予定、作者固有のパスは同梱しません。AWS共通の公開OAuth client IDは秘密情報ではないため含みます。利用者自身のスキルコピーとBuilder IDで導入します。既存のローカル環境を自動移行せず、全クライアント・全バージョンのE2E確認済みともしていません。
 
 ## ログイン補助の動作
 
