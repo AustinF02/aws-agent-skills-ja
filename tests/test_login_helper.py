@@ -113,9 +113,9 @@ class LoginTests(unittest.TestCase):
 
 
 class PackageTests(unittest.TestCase):
-    def test_four_discoverable_skills(self):
+    def test_five_discoverable_skills(self):
         paths = list((ROOT / "skills").glob("*/SKILL.md"))
-        self.assertEqual(len(paths), 4)
+        self.assertEqual(len(paths), 5)
         for path in paths:
             text = path.read_text(encoding="utf-8")
             front = text.split("---", 2)[1]

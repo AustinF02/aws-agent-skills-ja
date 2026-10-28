@@ -1,6 +1,6 @@
 # AWS Agent Skills 日本語版
 
-**Codex・Kiro・Claude Codeで、AWSのログインとMCP接続を日本語で進めるスキル集です。**
+**Codex・Kiro・Claude Codeで、AWSのログイン・MCP接続・バックエンドのTDDを日本語で進めるスキル集です。**
 
 「どの設定ファイルを直すのか分からない」「AWS MCPだけ接続できない」「ログインが切れるたびに困る」ときに、既存設定を確認しながら導入と切り分けを進めます。利用者自身のAWSアカウントを使い、作者の認証情報・端末の設定は含めません。
 
@@ -16,6 +16,7 @@
 | [aws-login-helper](skills/aws-login-helper/SKILL.md) | セッション失効の確認、必要な場合だけ再認証、AWS MCP起動 | 必要 |
 | [aws-mcp-setup](skills/aws-mcp-setup/SKILL.md) | AWSアカウントを使う公式MCPの接続と切り分け | 必要 |
 | [aws-agent-toolkit-setup](skills/aws-agent-toolkit-setup/SKILL.md) | AWS公式手順に沿うToolkit導入、AWSスキルとMCPの確認 | 必要 |
+| [aws-backend-tdd](skills/aws-backend-tdd/SKILL.md) | AWS基盤・バックエンドの振る舞いを小さなテストから実装 | 通常不要。実AWS検証は別途確認 |
 
 Knowledge MCPの接続だけなら、AWSアカウントやAWS CLIの準備から始める必要はありません。AWSリソースの操作まで必要になったときに、AWS MCPとログインを設定します。
 
@@ -123,6 +124,20 @@ python -m unittest discover -s tests -v
 
 実装前の失敗記録と実装後の成功記録は、コミット履歴とActionsで確認できます。
 
+## AWS・バックエンドのTDD
+
+[aws-backend-tdd](skills/aws-backend-tdd/SKILL.md) は、AWS基盤・API・Lambda・非同期処理などを、小さいRED → GREEN → REFACTORで変更するためのスキルです。
+
+```text
+aws-backend-tdd を使って、このバックエンドの変更を進めてください。
+既存動作とテスト階層を確認し、意図した失敗を見てから最小実装で通してください。
+実AWSへの接続・変更は、許可された範囲だけにしてください。
+```
+
+本文は約1,140トークン（o200k_baseによる参考値）です。SDK・実践例、IAM・IaC、実AWS検証の詳細を、必要なときだけ読む3ファイルへ分離しています。フォルダ全体を導入し、`references/` も保持してください。
+
+単体テストと実AWS検証を分離し、実AWSを使った場合は後片付けまで報告します。スキルの形式・参照先の確認と、実際のエージェントが手順を守ることの検証は別です。現時点で、3エージェントによる実タスク評価済みとはしていません。
+
 ## 開発方針
 
 本リポジトリの [AGENTS.md](AGENTS.md) を開発方針の原本とします。Claude Codeは [CLAUDE.md](CLAUDE.md)、Kiroは [.kiro/steering/development.md](.kiro/steering/development.md) から参照します。`inclusion: always` はKiro用ファイルに一度だけ指定しています。
@@ -133,11 +148,10 @@ python -m unittest discover -s tests -v
 
 以下はリンクだけを紹介します。スキル本文、インストーラー、フックは同梱・自動導入しません。
 
-- [TDD](https://github.com/intent-driven-dev/tdd-skill-evaluation-harness/tree/main/.codex/skills/tdd) — 失敗するテストから最小実装へ進める。
 - [ponytail](https://github.com/DietrichGebert/ponytail) — 必要な変更に絞る。
 - [caveman](https://github.com/JuliusBrussee/caveman) — 必要な事実を残して作業報告を短くする。
 
-開発に使う場合は各配布元の導入条件・対応エージェント・ライセンスを確認してください。TDDリンクはCodex向けの実験的ハーネス内のスキルです。これらを未導入でもAWSセットアップ用の4スキルは利用できます。
+開発に使う場合は各配布元の導入条件・対応エージェント・ライセンスを確認してください。これらを未導入でも、本リポジトリのスキルは利用できます。
 
 ## 公式資料
 
