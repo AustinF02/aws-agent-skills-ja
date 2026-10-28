@@ -1,5 +1,6 @@
 """AWS MCP用の認証確認。認証情報を出力・保存しない。Python 3.11以上。"""
 import argparse
+import configparser
 from contextlib import contextmanager
 import hashlib
 import json
@@ -31,6 +32,43 @@ def environment(profile, region):
     env.update(AWS_PROFILE=profile, AWS_MCP_PROXY_PROFILES=profile,
                AWS_REGION=region, AWS_DEFAULT_REGION=region, AWS_PAGER="")
     return env
+
+
+def check_prerequisites(aws, profile, region):
+    result = subprocess.run([aws, "--version"], env=environment(profile, region),
+                            capture_output=True, text=True, timeout=20)
+    version = re.search(r"aws-cli/(\d+)\.(\d+)\.(\d+)", result.stdout + result.stderr)
+    if result.returncode or not version or int(version[1]) != 2 or tuple(
+            int(part) for part in version.groups()) < (2, 32, 0):
+        raise RuntimeError("AWS CLI v2.32.0以上のv2系が必要です。公式手順でインストールまたは更新してください。")
+
+    config = configparser.RawConfigParser()
+    credentials = configparser.RawConfigParser()
+    try:
+        for parser, variable, filename in (
+                (config, "AWS_CONFIG_FILE", "config"),
+                (credentials, "AWS_SHARED_CREDENTIALS_FILE", "credentials")):
+            path = Path(os.environ.get(variable, str(Path.home()/".aws"/filename))).expanduser()
+            try:
+                with path.open(encoding="utf-8") as stream:
+                    parser.read_file(stream)
+            except FileNotFoundError:
+                pass
+    except (OSError, UnicodeError, configparser.Error):
+        raise RuntimeError("AWSプロファイル設定を安全に読み取れません。書式と読み取り権限を確認してください。ログインは開始していません。") from None
+
+    section = "default" if profile == "default" else "profile " + profile
+    if not config.has_section(section):
+        raise RuntimeError("選択したプロファイルはこのヘルパー用に設定されていません。承認済みの初回ログインで名前付きプロファイルを準備してから自動化してください。")
+    settings = config[section]
+    incompatible = {"role_arn", "source_profile", "credential_source", "credential_process",
+                    "web_identity_token_file", "aws_access_key_id", "aws_secret_access_key",
+                    "aws_session_token", "aws_security_token"}
+    if (incompatible.intersection(settings) or any(key.startswith("sso_") for key in settings)
+            or credentials.has_section(profile)):
+        raise RuntimeError("選択したプロファイルは別方式または複数方式の認証設定です。既存のSSO・キー・プロセス・ロールの手順を保持し、このヘルパーを適用しないでください。")
+    if not settings.get("login_session", "").strip():
+        raise RuntimeError("選択したプロファイルにlogin_sessionがありません。承認済みの初回aws loginを対象の名前付きプロファイルで完了してから自動化してください。")
 
 
 def check_auth(aws, profile, region):
@@ -125,6 +163,7 @@ def main():
     aws = shutil.which("aws")
     if not aws:
         raise RuntimeError("AWS CLIがPATHにありません。AWS CLI v2.32以降を設定してください。")
+    check_prerequisites(aws, args.profile, args.region)
     if args.check:
         if not check_auth(aws, args.profile, args.region):
             raise RuntimeError("AWSセッションが失効しています。--login-only で再認証してください。")

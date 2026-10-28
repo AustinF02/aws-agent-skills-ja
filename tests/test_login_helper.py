@@ -1,4 +1,6 @@
 import importlib.util
+from contextlib import contextmanager
+import io
 import os
 from pathlib import Path
 import subprocess
@@ -110,6 +112,127 @@ class LoginTests(unittest.TestCase):
             self.assertFalse(worker.is_alive())
             self.assertFalse(errors)
             self.assertTrue(acquired.is_set())
+
+    @contextmanager
+    def configured_main(self, config, version="aws-cli/2.32.0 Python/3", credentials="",
+                        mode="--check", profile="example-profile", version_code=0):
+        with tempfile.TemporaryDirectory() as directory:
+            config_path = Path(directory) / "config"
+            credentials_path = Path(directory) / "credentials"
+            config_path.write_text(config, encoding="utf-8")
+            credentials_path.write_text(credentials, encoding="utf-8")
+            argv = ["helper", "--profile", profile, "--region", "ap-northeast-1"]
+            if mode:
+                argv.append(mode)
+            with patch.dict(os.environ, {"AWS_CONFIG_FILE": str(config_path),
+                                         "AWS_SHARED_CREDENTIALS_FILE": str(credentials_path)}), \
+                    patch.object(self.helper.sys, "argv", argv), \
+                    patch.object(self.helper.shutil, "which", side_effect=lambda name: name), \
+                    patch.object(self.helper.subprocess, "run", return_value=subprocess.CompletedProcess(
+                        [], version_code, stdout=version, stderr="private diagnostic")) as run, \
+                    patch.object(self.helper, "check_auth", return_value=True) as check, \
+                    patch.object(self.helper, "login") as login, \
+                    patch.object(self.helper, "ensure_auth") as ensure, \
+                    patch.object(self.helper.os, "execvpe") as start, \
+                    patch("sys.stdout", new_callable=io.StringIO):
+                yield check, login, ensure, start, run
+
+    def test_all_modes_reject_unsupported_cli_before_authentication(self):
+        for version, code in (("aws-cli/1.42.0", 0), ("aws-cli/2.31.99", 0),
+                              ("unrecognized version", 0), ("aws-cli/2.32.0", 1)):
+            for mode in ("--check", "--login-only", ""):
+                with self.subTest(version=version, code=code, mode=mode), self.configured_main(
+                        "[profile example-profile]\nlogin_session = example-session\n",
+                        version=version, version_code=code, mode=mode) as calls:
+                    with self.assertRaises(RuntimeError) as error:
+                        self.helper.main()
+                    self.assertNotIn("private diagnostic", str(error.exception))
+                    for call in calls[:4]:
+                        call.assert_not_called()
+
+    def test_supported_cli_preserves_each_mode(self):
+        for version in ("aws-cli/2.32.0", "aws-cli/2.38.5"):
+            for mode in ("--check", "--login-only", ""):
+                with self.subTest(version=version, mode=mode), self.configured_main(
+                        "[profile example-profile]\nlogin_session = example-session\n",
+                        version=version, mode=mode) as (check, login, ensure, start, run):
+                    self.helper.main()
+                    run.assert_called_once()
+                    self.assertEqual(run.call_args.args[0], ["aws", "--version"])
+                    if mode == "--check":
+                        check.assert_called_once()
+                        login.assert_not_called()
+                        start.assert_not_called()
+                    elif mode == "--login-only":
+                        login.assert_called_once()
+                        check.assert_called_once()
+                        start.assert_not_called()
+                    else:
+                        ensure.assert_called_once()
+                        start.assert_called_once()
+
+    def test_missing_or_uninitialized_profile_never_authenticates(self):
+        for config in ("", "[profile other]\nlogin_session = example-session\n",
+                       "[profile example-profile]\nregion = ap-northeast-1\n",
+                       "[profile example-profile]\nlogin_session =\n"):
+            for mode in ("--check", "--login-only", ""):
+                with self.subTest(config=config, mode=mode), self.configured_main(
+                        config, mode=mode) as calls:
+                    with self.assertRaises(RuntimeError):
+                        self.helper.main()
+                    for call in calls[:4]:
+                        call.assert_not_called()
+
+    def test_other_authentication_settings_never_authenticate(self):
+        for setting in ("sso_session", "sso_start_url", "sso_account_id", "sso_role_name",
+                        "role_arn", "source_profile", "credential_source", "credential_process",
+                        "web_identity_token_file", "aws_access_key_id", "aws_secret_access_key",
+                        "aws_session_token"):
+            for mode in ("--check", "--login-only", ""):
+                config = "[profile example-profile]\nlogin_session = example-session\n" + setting + " =\n"
+                with self.subTest(setting=setting, mode=mode), self.configured_main(
+                        config, mode=mode) as calls:
+                    with self.assertRaises(RuntimeError):
+                        self.helper.main()
+                    for call in calls[:4]:
+                        call.assert_not_called()
+
+    def test_shared_credentials_conflict_never_authenticates(self):
+        for mode in ("--check", "--login-only", ""):
+            with self.subTest(mode=mode), self.configured_main(
+                    "[profile example-profile]\nlogin_session = example-session\n",
+                    credentials="[example-profile]\naws_access_key_id =\n", mode=mode) as calls:
+                with self.assertRaises(RuntimeError):
+                    self.helper.main()
+                for call in calls[:4]:
+                    call.assert_not_called()
+
+    def test_default_profile_and_unrelated_credentials_are_preserved(self):
+        with self.configured_main("[default]\nlogin_session = example-session\n",
+                                  credentials="[other]\naws_access_key_id =\n",
+                                  profile="default") as (check, login, ensure, start, run):
+            self.helper.main()
+            check.assert_called_once_with("aws", "default", "ap-northeast-1")
+            login.assert_not_called()
+
+    def test_malformed_configuration_stops_without_raw_details(self):
+        for config in ("private diagnostic without a section",
+                       "[profile example-profile]\nlogin_session = one\nlogin_session = two\n"):
+            with self.subTest(config=config), self.configured_main(config) as calls:
+                with self.assertRaises(RuntimeError) as error:
+                    self.helper.main()
+                self.assertNotIn("private diagnostic", str(error.exception))
+                for call in calls[:4]:
+                    call.assert_not_called()
+
+    def test_unreadable_configuration_stops_before_authentication(self):
+        with self.configured_main("[profile example-profile]\nlogin_session = example-session\n") as calls:
+            with patch.object(self.helper.Path, "open", side_effect=PermissionError("private diagnostic")):
+                with self.assertRaises(RuntimeError) as error:
+                    self.helper.main()
+            self.assertNotIn("private diagnostic", str(error.exception))
+            for call in calls[:4]:
+                call.assert_not_called()
 
 
 class PackageTests(unittest.TestCase):
