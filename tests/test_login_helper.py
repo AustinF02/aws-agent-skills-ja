@@ -74,6 +74,44 @@ class LoginTests(unittest.TestCase):
             self.assertEqual(env["AWS_PROFILE"], "example-profile")
 
 
+    def test_non_macos_gui_requires_terminal(self):
+        with patch.object(self.helper.sys.stdin, "isatty", return_value=False), patch.object(self.helper.sys, "platform", "linux"), patch.object(self.helper.subprocess, "run") as run:
+            with self.assertRaises(RuntimeError):
+                self.helper.login("aws", "example-profile", "ap-northeast-1")
+            run.assert_not_called()
+
+    def test_macos_gui_opens_terminal_and_waits_for_auth(self):
+        with patch.object(self.helper.sys.stdin, "isatty", return_value=False), patch.object(self.helper.sys, "platform", "darwin"), patch.object(self.helper.subprocess, "run") as run, patch.object(self.helper.time, "sleep"), patch.object(self.helper, "check_auth", return_value=True):
+            self.helper.login("aws", "example-profile", "ap-northeast-1")
+            self.assertEqual(run.call_args.args[0][0], "/usr/bin/osascript")
+            self.assertIn("--login-only", run.call_args.args[0][-1])
+            self.assertFalse(run.call_args.kwargs.get("shell", False))
+
+    def test_lock_serializes_concurrent_startup(self):
+        import threading
+        acquired = threading.Event()
+        started = threading.Event()
+        errors = []
+        with tempfile.TemporaryDirectory() as directory:
+            lock = Path(directory) / "shared.lock"
+            def second():
+                started.set()
+                try:
+                    with self.helper.login_lock(lock):
+                        acquired.set()
+                except BaseException as error:
+                    errors.append(error)
+            with self.helper.login_lock(lock):
+                worker = threading.Thread(target=second)
+                worker.start()
+                self.assertTrue(started.wait(2))
+                self.assertFalse(acquired.wait(0.15))
+            worker.join(5)
+            self.assertFalse(worker.is_alive())
+            self.assertFalse(errors)
+            self.assertTrue(acquired.is_set())
+
+
 class PackageTests(unittest.TestCase):
     def test_four_discoverable_skills(self):
         paths = list((ROOT / "skills").glob("*/SKILL.md"))
