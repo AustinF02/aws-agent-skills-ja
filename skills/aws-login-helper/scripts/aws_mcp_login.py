@@ -158,6 +158,7 @@ def main():
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--check", action="store_true", help="認証確認のみ。ログインやMCP起動はしない")
     mode.add_argument("--login-only", action="store_true", help="端末で対話ログインのみを実行")
+    mode.add_argument("--allow-auto-login", action="store_true", help="MCP起動時のブラウザー認証を許可")
     args = parser.parse_args()
     validate(args.profile, args.region)
     aws = shutil.which("aws")
@@ -177,7 +178,10 @@ def main():
     uvx = shutil.which("uvx")
     if not uvx:
         raise RuntimeError("uvxがPATHにありません。uvを設定してください。")
-    ensure_auth(aws, args.profile, args.region)
+    if args.allow_auto_login:
+        ensure_auth(aws, args.profile, args.region)
+    elif not check_auth(aws, args.profile, args.region):
+        raise RuntimeError("AWSセッションが失効しました。--login-only で対話ログインを依頼し、MCPを再接続してください。")
     os.execvpe(uvx, [uvx, "mcp-proxy-for-aws-cli@latest", ENDPOINT],
                environment(args.profile, args.region))
 
