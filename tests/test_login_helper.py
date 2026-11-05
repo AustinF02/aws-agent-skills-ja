@@ -140,7 +140,7 @@ class LoginTests(unittest.TestCase):
     def test_all_modes_reject_unsupported_cli_before_authentication(self):
         for version, code in (("aws-cli/1.42.0", 0), ("aws-cli/2.31.99", 0),
                               ("unrecognized version", 0), ("aws-cli/2.32.0", 1)):
-            for mode in ("--check", "--login-only", ""):
+            for mode in ("--check", "--login-only", "", "--allow-auto-login"):
                 with self.subTest(version=version, code=code, mode=mode), self.configured_main(
                         "[profile example-profile]\nlogin_session = example-session\n",
                         version=version, version_code=code, mode=mode) as calls:
@@ -152,7 +152,7 @@ class LoginTests(unittest.TestCase):
 
     def test_supported_cli_preserves_each_mode(self):
         for version in ("aws-cli/2.32.0", "aws-cli/2.38.5"):
-            for mode in ("--check", "--login-only", ""):
+            for mode in ("--check", "--login-only", "", "--allow-auto-login"):
                 with self.subTest(version=version, mode=mode), self.configured_main(
                         "[profile example-profile]\nlogin_session = example-session\n",
                         version=version, mode=mode) as (check, login, ensure, start, run):
@@ -167,15 +167,31 @@ class LoginTests(unittest.TestCase):
                         login.assert_called_once()
                         check.assert_called_once()
                         start.assert_not_called()
-                    else:
+                    elif mode == "--allow-auto-login":
                         ensure.assert_called_once()
                         start.assert_called_once()
+                    else:
+                        check.assert_called_once()
+                        login.assert_not_called()
+                        ensure.assert_not_called()
+                        start.assert_called_once()
+
+    def test_expired_session_does_not_open_login_on_startup(self):
+        with self.configured_main(
+                "[profile example-profile]\nlogin_session = example-session\n",
+                mode="") as (check, login, ensure, start, _):
+            check.return_value = False
+            with self.assertRaisesRegex(RuntimeError, "--login-only"):
+                self.helper.main()
+            login.assert_not_called()
+            ensure.assert_not_called()
+            start.assert_not_called()
 
     def test_missing_or_uninitialized_profile_never_authenticates(self):
         for config in ("", "[profile other]\nlogin_session = example-session\n",
                        "[profile example-profile]\nregion = ap-northeast-1\n",
                        "[profile example-profile]\nlogin_session =\n"):
-            for mode in ("--check", "--login-only", ""):
+            for mode in ("--check", "--login-only", "", "--allow-auto-login"):
                 with self.subTest(config=config, mode=mode), self.configured_main(
                         config, mode=mode) as calls:
                     with self.assertRaises(RuntimeError):
@@ -188,7 +204,7 @@ class LoginTests(unittest.TestCase):
                         "role_arn", "source_profile", "credential_source", "credential_process",
                         "web_identity_token_file", "aws_access_key_id", "aws_secret_access_key",
                         "aws_session_token"):
-            for mode in ("--check", "--login-only", ""):
+            for mode in ("--check", "--login-only", "", "--allow-auto-login"):
                 config = "[profile example-profile]\nlogin_session = example-session\n" + setting + " =\n"
                 with self.subTest(setting=setting, mode=mode), self.configured_main(
                         config, mode=mode) as calls:
@@ -198,7 +214,7 @@ class LoginTests(unittest.TestCase):
                         call.assert_not_called()
 
     def test_shared_credentials_conflict_never_authenticates(self):
-        for mode in ("--check", "--login-only", ""):
+        for mode in ("--check", "--login-only", "", "--allow-auto-login"):
             with self.subTest(mode=mode), self.configured_main(
                     "[profile example-profile]\nlogin_session = example-session\n",
                     credentials="[example-profile]\naws_access_key_id =\n", mode=mode) as calls:
